@@ -29,13 +29,13 @@ DNN_CHECK_DIR.mkdir(exist_ok=True) # <-- CREATE IT
 
 MODEL_DIR = Path("dnn_models")
 
-# Model files
+# Model files (Using yolov3-tiny, as it's lighter)
 MODEL_CFG = str(MODEL_DIR / "yolov3-tiny.cfg")
 MODEL_WEIGHTS = str(MODEL_DIR / "yolov3-tiny.weights")
 MODEL_NAMES = str(MODEL_DIR / "coco.names")
 
 CONFIDENCE_THRESHOLD = 0.5
-PROCTORING_OBJECTS = ["laptop", "keyboard", "mouse", "chair", "dining table", "cell phone"]
+# --- PROCTORING_OBJECTS list has been REMOVED ---
 
 # --- Global Model Initialization ---
 try:
@@ -52,9 +52,13 @@ except Exception as e:
     print(f"FATAL ERROR: Could not load DNN model files. Verification will fail gracefully: {e}")
     net = None
 
-# --- Verification Function (The heavy, blocking task) ---
-# (This function is unchanged)
+# --- Verification Function (SIMPLIFIED as you requested) ---
 def verify_incident(image_path: Path, alert_type: str) -> dict:
+    """
+    Runs the heavy DNN verification on the saved image.
+    This version ONLY checks for person count.
+    """
+    
     if net is None:
         return {"verification_status": "FAILED", "reason": "DNN model failed to load on startup."}
     try:
@@ -64,7 +68,7 @@ def verify_incident(image_path: Path, alert_type: str) -> dict:
 
         blob = cv2.dnn.blobFromImage(img, 1/255.0, (416, 416), swapRB=True, crop=False)
         net.setInput(blob)
-        outs = net.forward(output_layers)
+        outs = net.forward(output_layers) # This is the heavy part
 
         class_ids = []
         for out in outs:
@@ -76,33 +80,33 @@ def verify_incident(image_path: Path, alert_type: str) -> dict:
                     class_ids.append(class_id)
         
         detected_classes = [classes[id] for id in class_ids]
+        person_count = detected_classes.count("person")
         
+        # --- NEW, SIMPLIFIED LOGIC ---
         if alert_type == "MULTIPLE_PEOPLE":
-            person_count = detected_classes.count("person")
+            # Edge said >1. We validate if DNN also says >1.
             verification_status = "VALIDATED" if person_count > 1 else "FALSE_POSITIVE"
-            return {
-                "verification_status": verification_status,
-                "person_count_dnn": person_count,
-                "detected_objects": list(set(detected_classes))
-            }
+            
         elif alert_type == "STUDENT_MISSING":
-            person_count = detected_classes.count("person")
-            proctor_objects_present = any(obj in detected_classes for obj in PROCTORING_OBJECTS)
-            verification_status = "VALIDATED" if (person_count == 0 and proctor_objects_present) else "FALSE_POSITIVE"
-            return {
-                "verification_status": verification_status,
-                "person_count_dnn": person_count,
-                "proctor_objects_present": proctor_objects_present,
-                "detected_objects": list(set(detected_classes))
-            }
-        return {"verification_status": "UNKNOWN", "reason": "Invalid alert type."}
+            # Edge said 0. We validate if DNN also says 0.
+            verification_status = "VALIDATED" if person_count == 0 else "FALSE_POSITIVE"
+        
+        else:
+            verification_status = "UNKNOWN"
+
+        return {
+            "verification_status": verification_status,
+            "person_count_dnn": person_count,
+            "detected_objects": list(set(detected_classes)) # We still log everything, just don't use it for logic
+        }
+        # --- END OF SIMPLIFIED LOGIC ---
 
     except Exception as e:
         print(f"!!! DNN VERIFICATION CRASHED: {e} !!!")
         return {"verification_status": "FAILED", "reason": str(e)}
 
 
-# --- NEW: Background Task Wrapper ---
+# --- Background Task Wrapper (Unchanged) ---
 def run_verification_and_cleanup(image_path: Path, alert_type: str):
     """
     This is the new function that runs in the background.
@@ -111,7 +115,7 @@ def run_verification_and_cleanup(image_path: Path, alert_type: str):
     # 1. Run the heavy verification
     results = verify_incident(image_path, alert_type)
     
-    # 2. PRINT THE RESULTS (This is what you were missing!)
+    # 2. PRINT THE RESULTS
     print("---" * 10)
     print(f"VERIFICATION COMPLETE for: {image_path.name}")
     print(json.dumps(results, indent=2)) # Pretty-print the results
