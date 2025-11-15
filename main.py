@@ -30,8 +30,8 @@ DNN_CHECK_DIR.mkdir(exist_ok=True) # <-- CREATE IT
 MODEL_DIR = Path("dnn_models")
 
 # Model files (Using yolov3-tiny, as it's lighter)
-MODEL_CFG = str(MODEL_DIR / "yolov3-tiny.cfg")
-MODEL_WEIGHTS = str(MODEL_DIR / "yolov3-tiny.weights")
+MODEL_CFG = str(MODEL_DIR / "yolov3.cfg")
+MODEL_WEIGHTS = str(MODEL_DIR / "yolov3.weights")
 MODEL_NAMES = str(MODEL_DIR / "coco.names")
 
 CONFIDENCE_THRESHOLD = 0.5
