@@ -2,13 +2,12 @@ import sqlite3
 import datetime
 from pathlib import Path
 import os
-# Assumes reportlab is installed via pip install reportlab
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 
-# --- Configuration (Must match main.py for paths and DB) ---
+# --- Configuration (Must match main.py) ---
 DB_NAME = "incident_data.db"
 TABLE_NAME = "validated_incidents"
 DNN_CHECK_DIR = Path("dnn_check") 
@@ -30,20 +29,19 @@ def generate_incident_report() -> Path:
     try:
         # 1. Connect and Query Data
         conn = sqlite3.connect(DB_NAME)
-        # Allows accessing columns by name (e.g., incident['image_name'])
-        conn.row_factory = sqlite3.Row 
+        conn.row_factory = sqlite3.Row # Allows access by column name
         cursor = conn.cursor()
         
-        # Select all incidents, ordered by validation time (chronological)
+        # Select all incidents, ordered by validation time
         cursor.execute(f"SELECT * FROM {TABLE_NAME} ORDER BY validation_time ASC")
         incidents = cursor.fetchall()
-        
+
         # 2. Setup PDF Document
         doc = SimpleDocTemplate(str(report_path), pagesize=A4)
         styles = getSampleStyleSheet()
         story = []
 
-        # Define custom style for incident details
+        # Custom style for incident details
         styles.add(ParagraphStyle(name='IncidentDetail', fontName='Helvetica', fontSize=10, leading=14))
         
         # Report Title Page/Header
@@ -105,7 +103,6 @@ def generate_incident_report() -> Path:
         # Clean up partial file if needed
         if report_path.exists():
             os.remove(report_path)
-        # Re-raise the exception to be caught by the FastAPI endpoint
         raise Exception(f"Failed to generate report due to an internal error: {e}")
     finally:
         if conn:

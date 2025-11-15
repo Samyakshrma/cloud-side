@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 import os
 import json 
-import sqlite3 # New import for SQLite
+import sqlite3 
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import (
@@ -17,6 +17,10 @@ from fastapi import (
     Header,
     HTTPException
 )
+from fastapi.responses import FileResponse # NEW: For serving the PDF
+
+# Import the new report generation function and constants
+from report_generator import generate_incident_report, REPORT_FILENAME
 
 # --- Configuration ---
 
@@ -34,7 +38,7 @@ MODEL_DIR = Path("dnn_models")
 DB_NAME = "incident_data.db"
 TABLE_NAME = "validated_incidents"
 
-# --- Database Initialization ---
+# --- Database Initialization (Unchanged) ---
 
 def initialize_database():
     """Initializes the SQLite database and creates the table if it doesn't exist."""
@@ -62,8 +66,7 @@ def initialize_database():
         if conn:
             conn.close()
 
-# --- Model Initialization ---
-# (Rest of model loading remains the same)
+# --- Model Initialization (Unchanged) ---
 MODEL_PROTO = str(MODEL_DIR / "deploy.prototxt")
 MODEL_WEIGHTS = str(MODEL_DIR / "res10_300x300_ssd_iter_140000.caffemodel")
 CONFIDENCE_THRESHOLD = 0.5 
@@ -123,7 +126,7 @@ def verify_incident(image_path: Path, alert_type: str) -> dict:
         return {"verification_status": "FAILED", "reason": str(e)}
 
 
-# --- Database Insertion Function (NEW) ---
+# --- Database Insertion Function (Unchanged) ---
 def insert_validated_incident(image_name: str, alert_type: str, face_count: int):
     """Inserts a validated incident record into the SQLite database."""
     try:
@@ -151,31 +154,7 @@ def insert_validated_incident(image_name: str, alert_type: str, face_count: int)
         if conn:
             conn.close()
 
-# --- Database Retrieval Function (NEW) ---
-def get_validated_incidents_data() -> list:
-    """Retrieves all validated incident records from the SQLite database."""
-    conn = None
-    try:
-        conn = sqlite3.connect(DB_NAME)
-        # Allows accessing columns by name (e.g., row['image_name'])
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        # Select all incidents, ordered by validation time (chronological)
-        cursor.execute(f"SELECT * FROM {TABLE_NAME} ORDER BY validation_time ASC")
-        # Convert rows to a list of dictionaries for easy JSON serialization
-        incidents = [dict(row) for row in cursor.fetchall()]
-        
-        return incidents
-        
-    except Exception as e:
-        print(f"ERROR: Failed to retrieve incidents from DB: {e}")
-        return []
-    finally:
-        if conn:
-            conn.close()
-
-# --- Background Task Wrapper (Modified) ---
+# --- Background Task Wrapper (Unchanged) ---
 def run_verification_and_cleanup(image_path: Path, alert_type: str):
     """
     Runs verification, handles file movement/deletion, and persists data to SQLite.
@@ -236,6 +215,32 @@ def shutdown_event():
 async def get_root():
     return {"status": "ok", "message": "Proctor API is running."}
 
+# NEW ENDPOINT: Report Generation
+@app.get("/generate-report/")
+async def generate_report():
+    """
+    Triggers the creation of a PDF report containing all validated incidents
+    and returns the file for download.
+    """
+    print("LOG: API endpoint /generate-report/ triggered.")
+    try:
+        # Generate the report synchronously (it's a one-off operation)
+        report_path = generate_incident_report()
+        
+        # Return the generated PDF file using FileResponse
+        return FileResponse(
+            path=report_path, 
+            filename=REPORT_FILENAME, 
+            media_type="application/pdf",
+            # This ensures the browser downloads the file with the correct name
+            headers={"Content-Disposition": f"attachment; filename={REPORT_FILENAME}"}
+        )
+    except Exception as e:
+        # Catch errors from the report generation function
+        print(f"ERROR: Failed to generate report: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create report: {e}")
+
+
 @app.post("/ingest-alert/")
 async def ingest_alert(
     alert_type: str = Form(...),
@@ -274,34 +279,6 @@ async def ingest_alert(
         "verification_status": "PENDING"
     }
 
-# NEW ENDPOINT: Report Data Retrieval
-@app.get("/get-report-data/")
-async def get_report_data():
-    """
-    Triggers retrieval of all validated incident records from the database.
-    
-    This can be used by a separate application to generate a PDF or dashboard.
-    """
-    print("LOG: API endpoint /get-report-data/ triggered.")
-    try:
-        # Retrieve the data synchronously
-        incident_data = get_validated_incidents_data()
-        
-        if not incident_data:
-            return {"status": "SUCCESS", "message": "No validated incidents found.", "incidents": []}
-            
-        return {
-            "status": "SUCCESS",
-            "message": f"Retrieved {len(incident_data)} validated incidents.",
-            "incidents": incident_data
-        }
-    except Exception as e:
-        # Catch errors from the report generation function
-        print(f"ERROR: Failed to retrieve report data: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve report data: {e}")
-
 if __name__ == "__main__":
-    # Note: If running with `uvicorn main:app`, the `initialize_database()` call
-    # made globally will handle initialization.
     print("--- Starting local development server ---")
     uvicorn.run("main:app", host="127.0.0.1", port="8000", reload=True)
