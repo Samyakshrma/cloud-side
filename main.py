@@ -29,35 +29,29 @@ DNN_CHECK_DIR.mkdir(exist_ok=True)
 
 MODEL_DIR = Path("dnn_models")
 
-# --- THIS IS THE CORRECT, HEAVY MODEL ---
-MODEL_CFG = str(MODEL_DIR / "yolov3.cfg")
-MODEL_WEIGHTS = str(MODEL_DIR / "yolov3.weights")
-MODEL_NAMES = str(MODEL_DIR / "coco.names")
+# --- THIS IS THE NEW, CORRECT MODEL ---
+# We are now using a Caffe DNN Face Detector, not YOLO
+MODEL_PROTO = str(MODEL_DIR / "deploy.prototxt")
+MODEL_WEIGHTS = str(MODEL_DIR / "res10_300x300_ssd_iter_140000.caffemodel")
+# ---------------------------------------
 
-CONFIDENCE_THRESHOLD = 0.5
-# --- PROCTORING_OBJECTS list has been REMOVED ---
+CONFIDENCE_THRESHOLD = 0.5 # We can use the same confidence
 
 # --- Global Model Initialization ---
 try:
-    net = cv2.dnn.readNetFromDarknet(MODEL_CFG, MODEL_WEIGHTS)
-    layer_names = net.getLayerNames()
-    output_layers = [layer_names[i - 1] for i in net.getUnconnectedOutLayers()]
-    
-    with open(MODEL_NAMES, 'r') as f:
-        classes = [line.strip() for line in f.readlines()]
-    
-    # --- THIS IS THE ONLY LINE THAT CHANGED ---
-    print("LOG: DNN Model (FULL YOLOv3-320) loaded successfully.")
+    # Load the new Caffe model
+    net = cv2.dnn.readNetFromCaffe(MODEL_PROTO, MODEL_WEIGHTS)
+    print("LOG: DNN Face Detector (Caffe) loaded successfully.")
 
 except Exception as e:
     print(f"FATAL ERROR: Could not load DNN model files. Verification will fail gracefully: {e}")
     net = None
 
-# --- Verification Function (SIMPLIFIED as you requested) ---
+# --- Verification Function (NEW, SIMPLER, MORE ACCURATE) ---
 def verify_incident(image_path: Path, alert_type: str) -> dict:
     """
-    Runs the heavy DNN verification on the saved image.
-    This version ONLY checks for person count.
+    Runs the heavy DNN FACE verification on the saved image.
+    This version ONLY checks for face count.
     """
     
     if net is None:
@@ -67,38 +61,42 @@ def verify_incident(image_path: Path, alert_type: str) -> dict:
         if img is None:
             return {"verification_status": "FAILED", "reason": "Could not read image file."}
 
-        blob = cv2.dnn.blobFromImage(img, 1/255.0, (416, 416), swapRB=True, crop=False)
-        net.setInput(blob)
-        outs = net.forward(output_layers) # This is the heavy part
+        (h, w) = img.shape[:2]
+        # Create a blob, resizing to a fixed 300x300 pixels
+        # and applying the model's required mean subtraction
+        blob = cv2.dnn.blobFromImage(cv2.resize(img, (300, 300)), 1.0,
+            (300, 300), (104.0, 177.0, 123.0))
 
-        class_ids = []
-        for out in outs:
-            for detection in out:
-                scores = detection[5:]
-                class_id = np.argmax(scores)
-                confidence = scores[class_id]
-                if confidence > CONFIDENCE_THRESHOLD:
-                    class_ids.append(class_id)
+        net.setInput(blob)
+        # This is the heavy part
+        detections = net.forward()
+
+        face_count = 0
         
-        detected_classes = [classes[id] for id in class_ids]
-        person_count = detected_classes.count("person")
+        # Loop over the detections
+        for i in range(0, detections.shape[2]):
+            # Extract the confidence (i.e., probability)
+            confidence = detections[0, 0, i, 2]
+
+            # Filter out weak detections
+            if confidence > CONFIDENCE_THRESHOLD:
+                face_count += 1
         
-        # --- NEW, SIMPLIFIED LOGIC ---
+        # --- SIMPLIFIED LOGIC ---
         if alert_type == "MULTIPLE_PEOPLE":
             # Edge said >1. We validate if DNN also says >1.
-            verification_status = "VALIDATED" if person_count > 1 else "FALSE_POSITIVE"
+            verification_status = "VALIDATED" if face_count > 1 else "FALSE_POSITIVE"
             
         elif alert_type == "STUDENT_MISSING":
             # Edge said 0. We validate if DNN also says 0.
-            verification_status = "VALIDATED" if person_count == 0 else "FALSE_POSITIVE"
+            verification_status = "VALIDATED" if face_count == 0 else "FALSE_POSITIVE"
         
         else:
             verification_status = "UNKNOWN"
 
         return {
             "verification_status": verification_status,
-            "person_count_dnn": person_count,
-            "detected_objects": list(set(detected_classes)) # We still log everything, just don't use it for logic
+            "face_count_dnn": face_count, # This count will now be accurate
         }
         # --- END OF SIMPLIFIED LOGIC ---
 
@@ -183,7 +181,6 @@ async def ingest_alert(
     # 2. Trigger the Heavy Verification in a background thread
     print(f"LOG: Image saved to {file_path}. Starting DNN verification in background...")
     
-    # --- MODIFIED: Call your new wrapper function ---
     executor.submit(run_verification_and_cleanup, file_path, alert_type)
 
     # 3. Respond INSTANTLY to the edge device
@@ -196,4 +193,4 @@ async def ingest_alert(
 
 if __name__ == "__main__":
     print("--- Starting local development server ---")
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port="8000", reload=True)
