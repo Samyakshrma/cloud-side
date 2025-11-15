@@ -24,7 +24,7 @@ from report_generator import generate_incident_report, REPORT_FILENAME
 
 # --- Configuration ---
 
-EXPECTED_API_KEY = "your-secret-key-here-12345"
+EXPECTED_API_KEY = "key"
 
 # Directories on the VM
 STORAGE_DIR = Path("incident_reports")
