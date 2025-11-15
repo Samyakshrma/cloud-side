@@ -151,6 +151,30 @@ def insert_validated_incident(image_name: str, alert_type: str, face_count: int)
         if conn:
             conn.close()
 
+# --- Database Retrieval Function (NEW) ---
+def get_validated_incidents_data() -> list:
+    """Retrieves all validated incident records from the SQLite database."""
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        # Allows accessing columns by name (e.g., row['image_name'])
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Select all incidents, ordered by validation time (chronological)
+        cursor.execute(f"SELECT * FROM {TABLE_NAME} ORDER BY validation_time ASC")
+        # Convert rows to a list of dictionaries for easy JSON serialization
+        incidents = [dict(row) for row in cursor.fetchall()]
+        
+        return incidents
+        
+    except Exception as e:
+        print(f"ERROR: Failed to retrieve incidents from DB: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
 # --- Background Task Wrapper (Modified) ---
 def run_verification_and_cleanup(image_path: Path, alert_type: str):
     """
@@ -249,6 +273,32 @@ async def ingest_alert(
         "server_filename": filename,
         "verification_status": "PENDING"
     }
+
+# NEW ENDPOINT: Report Data Retrieval
+@app.get("/get-report-data/")
+async def get_report_data():
+    """
+    Triggers retrieval of all validated incident records from the database.
+    
+    This can be used by a separate application to generate a PDF or dashboard.
+    """
+    print("LOG: API endpoint /get-report-data/ triggered.")
+    try:
+        # Retrieve the data synchronously
+        incident_data = get_validated_incidents_data()
+        
+        if not incident_data:
+            return {"status": "SUCCESS", "message": "No validated incidents found.", "incidents": []}
+            
+        return {
+            "status": "SUCCESS",
+            "message": f"Retrieved {len(incident_data)} validated incidents.",
+            "incidents": incident_data
+        }
+    except Exception as e:
+        # Catch errors from the report generation function
+        print(f"ERROR: Failed to retrieve report data: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve report data: {e}")
 
 if __name__ == "__main__":
     # Note: If running with `uvicorn main:app`, the `initialize_database()` call
