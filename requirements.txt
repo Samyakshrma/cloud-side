@@ -2,3 +2,9 @@ fastapi
 uvicorn[standard]
 python-multipart
 aiofiles
+fastapi
+uvicorn[standard]
+python-multipart
+aiofiles
+opencv-python-headless
+numpy
