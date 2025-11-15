@@ -23,13 +23,13 @@ EXPECTED_API_KEY = "your-secret-key-here-12345"
 
 # Directories on the VM
 STORAGE_DIR = Path("incident_reports")
-DNN_CHECK_DIR = Path("dnn_check") # <-- YOUR NEW FOLDER
+DNN_CHECK_DIR = Path("dnn_check") 
 STORAGE_DIR.mkdir(exist_ok=True)
-DNN_CHECK_DIR.mkdir(exist_ok=True) # <-- CREATE IT
+DNN_CHECK_DIR.mkdir(exist_ok=True) 
 
 MODEL_DIR = Path("dnn_models")
 
-# Model files (Using yolov3-tiny, as it's lighter)
+# --- THIS IS THE CORRECT, HEAVY MODEL ---
 MODEL_CFG = str(MODEL_DIR / "yolov3.cfg")
 MODEL_WEIGHTS = str(MODEL_DIR / "yolov3.weights")
 MODEL_NAMES = str(MODEL_DIR / "coco.names")
@@ -46,7 +46,8 @@ try:
     with open(MODEL_NAMES, 'r') as f:
         classes = [line.strip() for line in f.readlines()]
     
-    print("LOG: DNN Model (YOLOv3-tiny) loaded successfully.")
+    # --- THIS IS THE ONLY LINE THAT CHANGED ---
+    print("LOG: DNN Model (FULL YOLOv3-320) loaded successfully.")
 
 except Exception as e:
     print(f"FATAL ERROR: Could not load DNN model files. Verification will fail gracefully: {e}")
