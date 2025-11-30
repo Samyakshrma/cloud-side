@@ -20,6 +20,9 @@ from fastapi import (
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+# 1. NEW IMPORT: CORS Middleware
+from fastapi.middleware.cors import CORSMiddleware 
+
 # --- Custom Module Imports ---
 from report_generator import generate_incident_report, REPORT_FILENAME
 from database import (
@@ -153,6 +156,15 @@ app = FastAPI(
     dependencies=[Depends(verify_api_key)]
 )
 
+# 2. NEW CONFIG: Add Middleware to allow Frontend Access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # In production, replace "*" with ["http://localhost:3000"]
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 @app.on_event("shutdown")
 def shutdown_event():
     executor.shutdown(wait=False)
@@ -243,4 +255,4 @@ async def download_report(filename: str):
 
 if __name__ == "__main__":
     print("--- Starting Cloud Node ---")
-    uvicorn.run("main:app", host="127.0.0.1", port="8000", reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

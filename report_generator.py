@@ -7,10 +7,10 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 
-# --- NEW IMPORTS ---
+# --- CORRECTED IMPORTS ---
 from database import (
     get_db_connection, 
-    get_and_clear_verification_stats,
+    get_and_clear_all_stats, # <-- FIXED: Changed from get_and_clear_verification_stats
     TABLE_INCIDENTS
 )
 
@@ -49,7 +49,7 @@ def generate_incident_report():
 
         # 2. Fetch Stats (for the Frontend Graphs)
         # This function also internally clears the stats table!
-        stats_data = get_and_clear_verification_stats()
+        stats_data = get_and_clear_all_stats() # <-- FIXED: Correct function call
 
         # 3. Generate PDF Report
         doc = SimpleDocTemplate(str(report_path), pagesize=A4)
