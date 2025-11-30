@@ -1,0 +1,51 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.so
+*.egg-info/
+*.egg
+*.log
+
+# Virtual environments
+venv/
+.env/
+*.env
+
+# Byte-compiled / cache
+.pytest_cache/
+.mypy_cache/
+.cache/
+
+# --- OS / Editor files ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# --- Docker / Git ---
+.git/
+.gitignore
+docker-compose.yml
+Dockerfile*
+
+# --- Build / Package artifacts ---
+dist/
+build/
+*.spec
+
+# --- Environment / secrets (you should mount these instead) ---
+.env.local
+.env.production
+.env.development
+
+# --- Misc ---
+node_modules/   # (if you also have a frontend inside project root)
+
+
+venv/
+__pycache__/
