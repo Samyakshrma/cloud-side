@@ -1,4 +1,4 @@
-import sqlite3
+# report_generator.py
 import datetime
 from pathlib import Path
 import os
@@ -7,44 +7,56 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 
-# --- Configuration (Must match main.py) ---
-DB_NAME = "incident_data.db"
-TABLE_NAME = "validated_incidents"
+# --- NEW IMPORTS ---
+from database import (
+    get_db_connection, 
+    get_and_clear_verification_stats,
+    TABLE_INCIDENTS
+)
+
 DNN_CHECK_DIR = Path("dnn_check") 
 REPORT_FILENAME = "Incident_Report.pdf"
 
-# --- Main Report Generation Function ---
-def generate_incident_report() -> Path:
+def generate_incident_report():
     """
-    Queries validated incidents from the database, collects corresponding images, 
-    generates a PDF report, and then clears the incident table.
+    1. Queries validated incidents from Postgres.
+    2. Queries verification stats (metrics).
+    3. Generates PDF.
+    4. Clears BOTH tables in Postgres.
     
     Returns:
-        Path: The path to the generated PDF file.
+        (Path, Dict): The path to the PDF and the dictionary of stats.
     """
     print("LOG: Starting incident report generation...")
     report_path = Path(REPORT_FILENAME)
-    conn = None
+    conn = get_db_connection()
     
+    if not conn:
+        raise Exception("Database connection failed during report generation.")
+
+    incidents = []
+    stats_data = {}
+
     try:
-        # 1. Connect and Query Data
-        conn = sqlite3.connect(DB_NAME)
-        conn.row_factory = sqlite3.Row # Allows access by column name
         cursor = conn.cursor()
         
-        # Select all incidents, ordered by validation time
-        cursor.execute(f"SELECT * FROM {TABLE_NAME} ORDER BY validation_time ASC")
-        incidents = cursor.fetchall()
+        # 1. Fetch Incidents (for the PDF)
+        cursor.execute(f"SELECT image_name, alert_type, face_count_dnn, validation_time FROM {TABLE_INCIDENTS} ORDER BY validation_time ASC")
+        # Convert tuple rows to list of dicts for easier handling
+        columns = [desc[0] for desc in cursor.description]
+        rows = cursor.fetchall()
+        incidents = [dict(zip(columns, row)) for row in rows]
 
-        # 2. Setup PDF Document
+        # 2. Fetch Stats (for the Frontend Graphs)
+        # This function also internally clears the stats table!
+        stats_data = get_and_clear_verification_stats()
+
+        # 3. Generate PDF Report
         doc = SimpleDocTemplate(str(report_path), pagesize=A4)
         styles = getSampleStyleSheet()
         story = []
-
-        # Custom style for incident details
         styles.add(ParagraphStyle(name='IncidentDetail', fontName='Helvetica', fontSize=10, leading=14))
         
-        # Report Title Page/Header
         story.append(Paragraph("Incident Verification Report", styles['Title']))
         story.append(Spacer(1, 0.25 * inch))
         story.append(Paragraph(f"Total Validated Incidents: {len(incidents)}", styles['h2']))
@@ -56,11 +68,9 @@ def generate_incident_report() -> Path:
             story.append(Spacer(1, 0.5 * inch))
             story.append(Paragraph("No validated incidents found to report.", styles['Normal']))
         else:
-            # 3. Iterate over incidents and build the content (Story)
             for incident in incidents:
-                # ... (All the PDF building logic remains identical) ...
-                
                 image_name = incident['image_name']
+                # Ensure we handle the Path correctly
                 image_path = DNN_CHECK_DIR / image_name
 
                 story.append(Paragraph(f"Incident ID: <b>{image_name}</b>", styles['h2']))
@@ -76,39 +86,32 @@ def generate_incident_report() -> Path:
                         story.append(img)
                         story.append(Spacer(1, 0.1 * inch))
                     except Exception as img_e:
-                        story.append(Paragraph(f"Image Error: Could not display image {image_name}.", styles['IncidentDetail']))
+                        story.append(Paragraph(f"Image Error: Could not display image.", styles['IncidentDetail']))
                 else:
-                    story.append(Paragraph(f"<b>Image Missing!</b> File not found at {image_path}", styles['IncidentDetail']))
+                    story.append(Paragraph(f"<b>Image Missing!</b> File not found.", styles['IncidentDetail']))
 
                 story.append(Paragraph(f"<b>Alert Type:</b> {incident['alert_type']}", styles['IncidentDetail']))
-                story.append(Paragraph(f"<b>Validated Face Count:</b> {incident['face_count_dnn']}", styles['IncidentDetail']))
-                story.append(Paragraph(f"<b>Validation Timestamp:</b> {incident['validation_time']}", styles['IncidentDetail']))
-                
-                story.append(Spacer(1, 0.5 * inch))
+                story.append(Paragraph(f"<b>Face Count:</b> {incident['face_count_dnn']}", styles['IncidentDetail']))
+                story.append(Paragraph(f"<b>Time:</b> {incident['validation_time']}", styles['IncidentDetail']))
                 story.append(Paragraph("<hr/>", styles['Normal']))
-                story.append(Spacer(1, 0.25 * inch))
                 
-        # 4. Build the PDF
         doc.build(story)
-        print(f"LOG: Report successfully generated at {report_path.resolve()}")
+        print(f"LOG: PDF generated at {report_path.resolve()}")
 
-        # --- NEW LOGIC START ---
-        # 5. Clear the table after successful report generation
-        if incidents: # Only run delete if there was data to report
-            print(f"LOG: Clearing {len(incidents)} records from {TABLE_NAME}...")
-            cursor.execute(f"DELETE FROM {TABLE_NAME}")
-            conn.commit() # Commit the deletion
-            print("LOG: Database table cleared successfully.")
-        # --- NEW LOGIC END ---
+        # 4. Clear the Incidents Table (Stats were cleared in step 2)
+        if incidents:
+            print(f"LOG: Clearing {len(incidents)} records from {TABLE_INCIDENTS}...")
+            cursor.execute(f"DELETE FROM {TABLE_INCIDENTS}")
+            conn.commit()
 
-        return report_path
+        # Return both the file path and the stats for the frontend
+        return report_path, stats_data
 
     except Exception as e:
-        print(f"FATAL ERROR during report generation or clearing: {e}")
-        # Clean up partial file if needed
-        if report_path.exists():
-            os.remove(report_path)
-        raise Exception(f"Failed to generate report due to an internal error: {e}")
+        print(f"FATAL ERROR during report generation: {e}")
+        if conn:
+            conn.rollback()
+        raise Exception(f"Failed to generate report: {e}")
     finally:
         if conn:
             conn.close()
