@@ -1,100 +1,70 @@
 
 
-
 # ☁️ ViEdge: Cloud Verification Node Documentation
 
-## 1\. Overview
+## 1. Overview
 
-The **ViEdge Cloud Node** serves as the centralized "Forensic Validator" in the hybrid architecture. Unlike traditional systems that process every frame, this node remains idle until triggered by the Edge device. Upon receiving a filtered alert, it spins up a heavy **Deep Neural Network (ResNet-10 SSD)** to perform a high-precision analysis, determining if the alert is a true incident or a false positive.
+The **ViEdge Cloud Node** acts as the centralized *Forensic Validator* in a hybrid AI architecture. It is only triggered when the Edge device detects a potential violation. Upon receiving an alert, the Cloud Node uses a **ResNet-10 Single Shot Detector (SSD)** to verify if the event is a *true incident* or a *false positive*.
 
 ### Key Responsibilities
 
-  * **Ingestion:** Receives high-priority images and efficiency heartbeats from Edge devices.
-  * **Verification:** Runs a ResNet-10 Single Shot Detector (SSD) to validate face counts.
-  * **Persistence:** Stores validated metadata in PostgreSQL and archives forensic images.
-  * **Analytics:** Calculates bandwidth savings and generates PDF incident reports.
+* **Ingestion:** Receives images and heartbeats from Edge nodes.
+* **Verification:** Performs DNN-based validation on alerts.
+* **Persistence:** Stores validated results in PostgreSQL (NeonDB).
+* **Analytics:** Generates PDF incident reports and bandwidth statistics.
 
------
+---
 
-## 2\. Technology Stack
+## 2. Technology Stack
 
-  * **Framework:** FastAPI (Python 3.11+)
-  * **Server:** Uvicorn (ASGI) / Gunicorn (Process Manager)
-  * **AI Engine:** OpenCV DNN Module (Caffe Framework)
-  * **Database:** PostgreSQL (Hosted on NeonDB)
-  * **Deployment:** Docker Container on Azure VM (Ubuntu LTS)
+* **Framework:** FastAPI (Python 3.11+)
+* **Server:** Uvicorn
+* **AI Engine:** OpenCV DNN (Caffe model)
+* **Database:** PostgreSQL on **NeonDB**
+* **Deployment:** Docker (Ubuntu LTS on Azure VM)
 
------
+---
 
-## 3\. Directory Structure
-
-The application requires a specific directory layout to function correctly.
+## 3. Directory Structure
 
 ```text
 cloud-side/
-├── dnn_models/                 # Stores the heavy AI models
-│   ├── deploy.prototxt         # Model architecture
-│   └── res10_300x300...model   # Pre-trained weights
-├── incident_reports/           # Temp storage for incoming alerts
-├── dnn_check/                  # Permanent storage for validated images
-├── Dockerfile                  # Container instructions
-├── requirements.txt            # Python dependencies
-├── main.py                     # API Entry point & Verification Logic
-├── database.py                 # PostgreSQL connection & Schema management
-├── report_generator.py         # PDF generation logic
-└── .env                        # Secrets (DB Connection String)
+├── dnn_models/                # AI models (auto-downloaded during Docker build)
+├── incident_reports/          # Temporary uploads from Edge
+├── dnn_check/                 # Permanent verified images
+├── Dockerfile                 # Container build instructions
+├── requirements.txt           # Dependencies
+├── main.py                    # FastAPI entrypoint
+├── database.py                # Database connection and schema
+├── report_generator.py        # PDF and stats generator
+└── .env                       # Secrets and environment variables
 ```
 
------
+---
 
-## 4\. AI Model Setup (Critical)
+## 4. Environment Setup
 
-The Cloud Node relies on a **ResNet-10 Single Shot Detector (SSD)**. This model is too large to store in source control and must be downloaded during setup or Docker build.
-
-**Model Source:** OpenCV 3rd Party Repository.
-
-### Download Commands
-
-Run these commands inside the `cloud-side` directory to create the folder and fetch the models:
-
-```bash
-# 1. Create the directory
-mkdir -p dnn_models
-
-# 2. Download Pre-trained Weights (The "Brain")
-wget -O dnn_models/res10_300x300_ssd_iter_140000.caffemodel https://github.com/opencv/opencv_3rdparty/raw/dnn_samples_face_detector_20170830/res10_300x300_ssd_iter_140000.caffemodel
-
-# 3. Download Architecture Config (The "Structure")
-wget -O dnn_models/deploy.prototxt https://raw.githubusercontent.com/opencv/opencv/master/samples/dnn/face_detector/deploy.prototxt
-```
-
------
-
-## 5\. Configuration
-
-Create a `.env` file in the root directory to store sensitive credentials.
+Before building the image, create a `.env` file in the project root:
 
 ```ini
 # .env
 NEON_CONN_STRING="postgresql://<user>:<password>@<endpoint>.neon.tech/<dbname>"
 ```
 
-*Note: The API Key logic is handled in code (`EXPECTED_API_KEY = "key"`), but can be moved here for higher security.*
+> 🧠 **Tip:** You can also define additional environment variables here (e.g., API keys, debug flags).
 
------
+---
 
-## 6\. Deployment (Docker)
+## 5. Dockerized Deployment
 
-We use Docker to ensure the OpenCV dependencies and system libraries (`libgl1`, etc.) are identical in development and production.
+All dependencies, models, and directories are handled automatically in the Docker build process — no manual downloads required.
 
-### Dockerfile Breakdown
-
-Our `Dockerfile` automatically handles the model download so you don't need to do it manually on the server.
+### 🧱 Dockerfile Summary
 
 ```dockerfile
 FROM python:3.11-slim
 
-# Install system dependencies for OpenCV
+# Install OpenCV dependencies
 RUN apt-get update && apt-get install -y \
     wget libgl1 libglib2.0-0 libsm6 libxext6 \
     && rm -rf /var/lib/apt/lists/*
@@ -103,10 +73,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Create directories
+# Create required directories
 RUN mkdir -p dnn_models incident_reports dnn_check
 
-# AUTOMATIC MODEL DOWNLOAD during build
+# Automatically download models
 RUN wget -O dnn_models/res10_300x300_ssd_iter_140000.caffemodel https://github.com/opencv/opencv_3rdparty/raw/dnn_samples_face_detector_20170830/res10_300x300_ssd_iter_140000.caffemodel
 RUN wget -O dnn_models/deploy.prototxt https://raw.githubusercontent.com/opencv/opencv/master/samples/dnn/face_detector/deploy.prototxt
 
@@ -115,46 +85,70 @@ EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-### Run Commands
+---
+
+## 6. Run Instructions
+
+### 🔨 Build the Docker Image
 
 ```bash
-# 1. Build the image (Downloads models & installs dependencies)
 docker build -t viedge-cloud .
-
-# 2. Run the container (Maps port 8000 & injects DB connection)
-docker run -d -p 8000:8000 --env-file .env --name viedge_container --restart always viedge-cloud
 ```
 
------
+### 🚀 Run the Container
 
-## 7\. API Reference
+```bash
+docker run -d \
+  -p 8000:8000 \
+  --env-file .env \
+  --name viedge_container \
+  --restart always \
+  viedge-cloud
+```
 
-The Cloud Node exposes RESTful endpoints for the Edge and Dashboard.
+The application will be available at:
+👉 `http://localhost:8000`
 
-| Endpoint | Method | Purpose | Payload |
-| :--- | :--- | :--- | :--- |
-| `/ingest-heartbeat/` | POST | **Efficiency Tracking.** Receives stats on processed/discarded frames from Edge. | JSON `{ "frames_processed": 500... }` |
-| `/ingest-alert/` | POST | **Verification Pipeline.** Receives potential violation images. Triggers background DNN check. | Multipart Form (Image + Metadata) |
-| `/generate-report-and-stats/` | POST | **Sync.** Calculates final stats, generates PDF, and **clears the database** for the next session. | Empty JSON |
-| `/download-report/{filename}` | GET | **Download.** Serves the generated PDF report. | None |
+---
 
------
+## 7. API Reference
 
-## 8\. Database Schema
+| Endpoint                      | Method | Description                                | Payload                            |
+| ----------------------------- | ------ | ------------------------------------------ | ---------------------------------- |
+| `/ingest-heartbeat/`          | POST   | Receives stats from edge nodes             | JSON `{ "frames_processed": 500 }` |
+| `/ingest-alert/`              | POST   | Receives alerts and triggers DNN check     | Multipart (Image + Metadata)       |
+| `/generate-report-and-stats/` | POST   | Generates PDF report & resets session data | `{}`                               |
+| `/download-report/{filename}` | GET    | Download generated PDF reports             | None                               |
 
-The system uses three tables in PostgreSQL to separate operational data from analytical metrics.
+---
 
-1.  **`validated_incidents`**: Stores verified alerts (Image Name, Type, Timestamp). Used for PDF generation.
-2.  **`heartbeat_stats`**: Stores raw counters (Processed vs. Discarded). Used to calculate "Bandwidth Saved."
-3.  **`verification_stats`**: Stores the outcome of every DNN check (True Positive vs. False Positive). Used to visualize AI accuracy.
+## 8. Database Schema
 
------
+| Table                 | Purpose                                   |
+| --------------------- | ----------------------------------------- |
+| `validated_incidents` | Stores confirmed alerts (used in reports) |
+| `heartbeat_stats`     | Tracks Edge device performance metrics    |
+| `verification_stats`  | Logs DNN validation outcomes              |
 
-## 9\. Troubleshooting
+---
 
-  * **Error:** `ImportError: libGL.so.1`
-      * **Fix:** Ensure `libgl1` is installed in the Dockerfile (already included in the provided config).
-  * **Error:** `DNN model failed to load`
-      * **Fix:** Check `dnn_models/` directory. Ensure the file sizes are correct (`.caffemodel` should be approx 10MB).
-  * **Error:** `Failed to fetch` (Frontend)
-      * **Fix:** Ensure `CORSMiddleware` is active in `main.py` and allowing `*` origins.
+## 9. Troubleshooting
+
+| Error                      | Cause                     | Fix                                                     |
+| -------------------------- | ------------------------- | ------------------------------------------------------- |
+| `ImportError: libGL.so.1`  | Missing OpenCV dependency | Already handled by `libgl1` in Dockerfile               |
+| `DNN model failed to load` | Missing model file        | Models auto-download during build — rebuild image       |
+| `Failed to fetch (CORS)`   | API request blocked       | Ensure `CORSMiddleware` in `main.py` allows all origins |
+
+---
+
+### ✅ You’re all set!
+
+Once deployed, your ViEdge Cloud Node will automatically:
+
+* Spin up on Docker
+* Connect to NeonDB
+* Download and initialize AI models
+* Listen for verification alerts on port `8000`
+
+---
